@@ -10,7 +10,7 @@ mod strategy;
 use super::*;
 
 use crate::block_manager::storage::{
-    DeviceStorage, DiskStorage, PinnedStorage, SystemStorage,
+    DeviceStorage, DiskStorage, PinnedStorage, RemoteFsStorage, SystemStorage,
     nixl::{NixlRegisterableStorage, NixlStorage},
 };
 

@@ -71,7 +71,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     CudaContextProivder, DeviceStorage, DiskStorage, PinnedStorage, RegistationHandle,
-    RegisterableStorage, Remote, Storage, StorageError, StorageType, SystemStorage,
+    RegisterableStorage, Remote, RemoteFsStorage, Storage, StorageError, StorageType,
+    SystemStorage,
 };
 
 /// NIXL remote descriptor
@@ -145,6 +146,7 @@ impl StorageType {
             StorageType::Nixl => MemType::Unknown,
             StorageType::Null => MemType::Unknown,
             StorageType::Disk(_) => MemType::File,
+            StorageType::RemoteFs(_) => MemType::File,
         }
     }
 }
@@ -403,6 +405,48 @@ impl MemoryRegion for DiskStorage {
 }
 
 impl NixlDescriptor for DiskStorage {
+    fn mem_type(&self) -> MemType {
+        MemType::File
+    }
+
+    /// Nixl treats the file descriptor as the device ID.
+    fn device_id(&self) -> u64 {
+        self.fd()
+    }
+}
+
+// RemoteFsStorage
+
+impl NixlAccessible for RemoteFsStorage {}
+impl NixlRegisterableStorage for RemoteFsStorage {
+    fn nixl_register(
+        &mut self,
+        agent: &NixlAgent,
+        opt_args: Option<&OptArgs>,
+    ) -> Result<(), StorageError> {
+        if self.unlinked() {
+            return Err(StorageError::AllocationFailed(
+                "Remote FS storage has already been unlinked. Registration will fail.".to_string(),
+            ));
+        }
+
+        handle_nixl_register(self, agent, opt_args)?;
+        self.unlink()?;
+        Ok(())
+    }
+}
+
+impl MemoryRegion for RemoteFsStorage {
+    unsafe fn as_ptr(&self) -> *const u8 {
+        unsafe { Storage::as_ptr(self) }
+    }
+
+    fn size(&self) -> usize {
+        Storage::size(self)
+    }
+}
+
+impl NixlDescriptor for RemoteFsStorage {
     fn mem_type(&self) -> MemType {
         MemType::File
     }

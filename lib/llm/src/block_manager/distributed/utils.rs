@@ -21,6 +21,8 @@ pub struct WorkerMetadata {
 pub struct LeaderMetadata {
     pub num_host_blocks: usize,
     pub num_disk_blocks: usize,
+    #[serde(default)]
+    pub num_remote_fs_blocks: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Copy)]
@@ -28,6 +30,7 @@ pub enum BlockTransferPool {
     Device,
     Host,
     Disk,
+    RemoteFs,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

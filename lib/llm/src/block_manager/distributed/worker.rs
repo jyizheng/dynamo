@@ -17,7 +17,10 @@ use crate::block_manager::{
     connector::scheduler::TransferSchedulerClient,
     layout::LayoutType,
     offload::{MAX_CONCURRENT_TRANSFERS, MAX_TRANSFER_BATCH_SIZE},
-    storage::{DeviceAllocator, DeviceStorage, DiskAllocator, PinnedAllocator, torch::TorchTensor},
+    storage::{
+        DeviceAllocator, DeviceStorage, DiskAllocator, PinnedAllocator, RemoteFsAllocator,
+        torch::TorchTensor,
+    },
 };
 
 use derive_builder::Builder;
@@ -112,7 +115,10 @@ async fn perform_allocation_and_build_handler(
     device_id: usize,
     scheduler_client: Option<TransferSchedulerClient>,
 ) -> anyhow::Result<BlockTransferHandler> {
-    let agent = build_agent(worker_id, leader_meta.num_disk_blocks > 0)?;
+    let agent = build_agent(
+        worker_id,
+        leader_meta.num_disk_blocks > 0 || leader_meta.num_remote_fs_blocks > 0,
+    )?;
     let pool_config = PoolConfig {
         enable_pool: true,
         max_concurrent_transfers: MAX_CONCURRENT_TRANSFERS,
@@ -178,11 +184,28 @@ async fn perform_allocation_and_build_handler(
     } else {
         None
     };
+    // remote_fs (G4)
+    let remote_fs_blocks = if leader_meta.num_remote_fs_blocks > 0 {
+        let remote_fs_allocator = Arc::new(RemoteFsAllocator::default());
+        let remote_fs_layout = layout_builder
+            .num_blocks(leader_meta.num_remote_fs_blocks)
+            .build()?
+            .allocate_layout(worker_config.disk_layout_type, remote_fs_allocator)?;
+        Some(KvbmWorker::make_layout::<_, BasicMetadata>(
+            remote_fs_layout,
+            transfer_context.nixl_agent().as_ref(),
+            3,
+            worker_id,
+        )?)
+    } else {
+        None
+    };
 
     let handler = BlockTransferHandler::new(
         device_blocks,
         host_blocks,
         disk_blocks,
+        remote_fs_blocks,
         transfer_context,
         scheduler_client,
     )?;

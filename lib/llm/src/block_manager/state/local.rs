@@ -12,6 +12,7 @@ use super::*;
 #[derive(Dissolve)]
 pub struct LocalBlockDataFactories {
     block_set: NixlBlockSet,
+    remote_fs_factory: Option<LocalBlockDataFactory<RemoteFsStorage>>,
     disk_factory: Option<LocalBlockDataFactory<DiskStorage>>,
     host_factory: Option<LocalBlockDataFactory<PinnedStorage>>,
     device_factory: Option<LocalBlockDataFactory<DeviceStorage>>,
@@ -94,8 +95,35 @@ impl LocalBlockDataFactories {
             None
         };
 
+        let remote_fs_factory = if let Some(config) = resources.config.remote_fs_layout.take() {
+            let offload_filter = config.offload_filter.clone();
+
+            if resources.nixl_agent.is_none() {
+                tracing::warn!("NIXL is disabled; will not allocate remote FS blocks.");
+                None
+            } else {
+                next_block_set_idx += 1;
+                tracing::debug!("Constructing remote_fs pool.");
+                let layout = create_layout(
+                    layout_builder.clone(),
+                    config,
+                    resources.nixl_agent.as_ref().as_ref(),
+                )?;
+                block_set.add_block_set(next_block_set_idx, layout.serialize()?);
+                Some(LocalBlockDataFactory::new(
+                    layout,
+                    next_block_set_idx,
+                    resources.worker_id,
+                    offload_filter,
+                ))
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             block_set,
+            remote_fs_factory,
             disk_factory,
             host_factory,
             device_factory,

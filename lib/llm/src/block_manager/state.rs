@@ -50,6 +50,7 @@ pub(crate) struct Resources {
 pub struct KvBlockManagerState<Locality: LocalityProvider, Metadata: BlockMetadata> {
     resources: Arc<Resources>,
 
+    remote_fs_pool: Option<Arc<dyn BlockPool<RemoteFsStorage, Locality, Metadata>>>,
     disk_pool: Option<Arc<dyn BlockPool<DiskStorage, Locality, Metadata>>>,
     host_pool: Option<Arc<dyn BlockPool<PinnedStorage, Locality, Metadata>>>,
     device_pool: Option<Arc<dyn BlockPool<DeviceStorage, Locality, Metadata>>>,
@@ -70,6 +71,10 @@ impl<Locality: LocalityProvider, Metadata: BlockMetadata> KvBlockManagerState<Lo
 
     pub fn device(&self) -> Option<&dyn BlockPool<DeviceStorage, Locality, Metadata>> {
         self.device_pool.as_ref().map(|pool| pool.as_ref())
+    }
+
+    pub fn remote_fs(&self) -> Option<&dyn BlockPool<RemoteFsStorage, Locality, Metadata>> {
+        self.remote_fs_pool.as_ref().map(|pool| pool.as_ref())
     }
 
     pub fn worker_id(&self) -> WorkerID {
@@ -161,6 +166,7 @@ impl<R: LogicalResources, Metadata: BlockMetadata>
         };
 
         let offload_manager = OffloadManager::new(
+            None, // no remote_fs pool for logical variant yet
             disk_pool.clone(),
             host_pool.clone(),
             device_pool.clone(),
@@ -172,6 +178,7 @@ impl<R: LogicalResources, Metadata: BlockMetadata>
 
         let state = Arc::new(Self {
             resources: resources.clone(),
+            remote_fs_pool: None,
             disk_pool,
             host_pool,
             device_pool,
@@ -223,8 +230,20 @@ impl<Metadata: BlockMetadata> KvBlockManagerState<locality::Local, Metadata> {
         let mut resources = Resources::new(config).await?;
         let block_data_factories = local::LocalBlockDataFactories::new(&mut resources)?;
 
-        let (mut local_block_set, disk_factory, host_factory, device_factory) =
+        let (mut local_block_set, remote_fs_factory, disk_factory, host_factory, device_factory) =
             block_data_factories.dissolve();
+
+        let (remote_fs_pool, remote_fs_blocks) = match remote_fs_factory {
+            Some(factory) => {
+                let (pool, blocks, _offload_filter) =
+                    create_block_pool::<_, _, Metadata>(factory, &resources, "remote_fs")?;
+                (Some(pool), Some(blocks))
+            }
+            None => {
+                tracing::debug!("No remote_fs layout provided; will not allocate remote_fs blocks.");
+                (None, None)
+            }
+        };
 
         let (disk_pool, disk_blocks, disk_offload_filter) = match disk_factory {
             Some(factory) => {
@@ -287,6 +306,7 @@ impl<Metadata: BlockMetadata> KvBlockManagerState<locality::Local, Metadata> {
         };
 
         let offload_manager = OffloadManager::new(
+            remote_fs_pool.clone(),
             disk_pool.clone(),
             host_pool.clone(),
             device_pool.clone(),
@@ -298,6 +318,7 @@ impl<Metadata: BlockMetadata> KvBlockManagerState<locality::Local, Metadata> {
 
         let state = Arc::new(Self {
             resources: resources.clone(),
+            remote_fs_pool,
             disk_pool,
             host_pool,
             device_pool,
@@ -305,6 +326,14 @@ impl<Metadata: BlockMetadata> KvBlockManagerState<locality::Local, Metadata> {
             remote_block_sets: RwLock::new(HashMap::new()),
             offload_manager,
         });
+
+        if let Some(mut blocks) = remote_fs_blocks {
+            blocks.iter_mut().for_each(|block| {
+                block.set_manager(state.clone());
+            });
+
+            state.remote_fs_pool.as_ref().unwrap().add_blocks(blocks).await?;
+        }
 
         if let Some(mut blocks) = disk_blocks {
             blocks.iter_mut().for_each(|block| {

@@ -225,6 +225,22 @@ pub mod kvbm {
         /// Number of blocks to store in object storage
         pub const DYN_KVBM_OBJECT_NUM_BLOCKS: &str = "DYN_KVBM_OBJECT_NUM_BLOCKS";
     }
+    /// Remote filesystem cache configuration (G4 tier)
+    pub mod remote_fs_cache {
+        /// Enable remote filesystem cache. Set to "1" to enable.
+        pub const DYN_KVBM_REMOTE_FS_ENABLED: &str = "DYN_KVBM_REMOTE_FS_ENABLED";
+
+        /// Directory path for remote filesystem cache (e.g., /mnt/3fs/kvbm_cache/)
+        pub const DYN_KVBM_REMOTE_FS_CACHE_DIR: &str = "DYN_KVBM_REMOTE_FS_CACHE_DIR";
+
+        /// Remote filesystem cache size in GB
+        pub const DYN_KVBM_REMOTE_FS_CACHE_GB: &str = "DYN_KVBM_REMOTE_FS_CACHE_GB";
+
+        /// Remote filesystem cache size in number of blocks (override)
+        pub const DYN_KVBM_REMOTE_FS_CACHE_OVERRIDE_NUM_BLOCKS: &str =
+            "DYN_KVBM_REMOTE_FS_CACHE_OVERRIDE_NUM_BLOCKS";
+    }
+
     /// Transfer configuration
     pub mod transfer {
         /// Maximum number of blocks per transfer batch

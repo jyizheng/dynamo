@@ -38,7 +38,7 @@ pub use layout::{LayoutConfig, LayoutConfigBuilder, LayoutError, LayoutType, nix
 pub use offload::{filter::OffloadFilter, request::BlockResult};
 pub use pool::{BlockPool, ManagedBlockPool};
 pub use storage::{
-    DeviceStorage, DiskStorage, PinnedStorage, Storage, StorageAllocator,
+    DeviceStorage, DiskStorage, PinnedStorage, RemoteFsStorage, Storage, StorageAllocator,
     nixl::NixlRegisterableStorage,
 };
 pub use tokio_util::sync::CancellationToken;
@@ -135,6 +135,11 @@ impl<Locality: LocalityProvider, Metadata: BlockMetadata> KvBlockManager<Localit
     /// Get a reference to the device block pool
     pub fn device(&self) -> Option<&dyn BlockPool<DeviceStorage, Locality, Metadata>> {
         self.state.device()
+    }
+
+    /// Get a reference to the remote filesystem block pool (G4 tier)
+    pub fn remote_fs(&self) -> Option<&dyn BlockPool<RemoteFsStorage, Locality, Metadata>> {
+        self.state.remote_fs()
     }
 
     /// Get the worker ID

@@ -154,6 +154,20 @@ impl BlockManager {
                         .map_err(to_pyerr)?,
                 );
             }
+
+            if leader.num_remote_fs_blocks() > 0 {
+                tracing::info!(
+                    "Using {} remote_fs blocks",
+                    leader.num_remote_fs_blocks()
+                );
+                config = config.remote_fs_layout(
+                    dynamo_llm::block_manager::KvManagerLayoutConfig::builder()
+                        .num_blocks(leader.num_remote_fs_blocks())
+                        .logical(Some(BlockParallelismStrategy::LeaderWorkerSharded))
+                        .build()
+                        .map_err(to_pyerr)?,
+                );
+            }
             (Some(leader), rt)
         } else {
             tracing::info!("Leader not provided. Block transfer functionality will be disabled.");
@@ -355,6 +369,15 @@ impl BlockManagerBuilder {
             config = config.disk_layout(
                 dynamo_llm::block_manager::KvManagerLayoutConfig::builder()
                     .num_blocks(leader_inner.num_disk_blocks())
+                    .logical(Some(BlockParallelismStrategy::LeaderWorkerSharded))
+                    .build()?,
+            );
+        }
+
+        if leader_inner.num_remote_fs_blocks() > 0 {
+            config = config.remote_fs_layout(
+                dynamo_llm::block_manager::KvManagerLayoutConfig::builder()
+                    .num_blocks(leader_inner.num_remote_fs_blocks())
                     .logical(Some(BlockParallelismStrategy::LeaderWorkerSharded))
                     .build()?,
             );

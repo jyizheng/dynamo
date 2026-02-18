@@ -6,8 +6,8 @@ use dynamo_runtime::metrics::prometheus_names::{
     kvbm::{
         DISK_CACHE_HIT_RATE, HOST_CACHE_HIT_RATE, MATCHED_TOKENS, OBJECT_CACHE_HIT_RATE,
         OBJECT_READ_FAILURES, OBJECT_WRITE_FAILURES, OFFLOAD_BLOCKS_D2D, OFFLOAD_BLOCKS_D2H,
-        OFFLOAD_BLOCKS_D2O, OFFLOAD_BLOCKS_H2D, ONBOARD_BLOCKS_D2D, ONBOARD_BLOCKS_H2D,
-        ONBOARD_BLOCKS_O2D,
+        OFFLOAD_BLOCKS_D2O, OFFLOAD_BLOCKS_D2R, OFFLOAD_BLOCKS_H2D, ONBOARD_BLOCKS_D2D,
+        ONBOARD_BLOCKS_H2D, ONBOARD_BLOCKS_O2D, ONBOARD_BLOCKS_R2D, REMOTE_FS_CACHE_HIT_RATE,
     },
     sanitize_prometheus_name,
 };
@@ -31,6 +31,9 @@ pub struct KvbmMetrics {
     // number of blocks offloaded from device to object storage
     pub offload_blocks_d2o: IntCounter,
 
+    // number of blocks offloaded from disk to remote filesystem (G3 -> G4)
+    pub offload_blocks_d2r: IntCounter,
+
     // number of blocks onboarded from host to device
     pub onboard_blocks_h2d: IntCounter,
 
@@ -39,6 +42,9 @@ pub struct KvbmMetrics {
 
     // number of blocks onboarded from object storage to device
     pub onboard_blocks_o2d: IntCounter,
+
+    // number of blocks onboarded from remote filesystem to device (G4 -> G1)
+    pub onboard_blocks_r2d: IntCounter,
 
     // number of matched tokens from KVBM
     pub matched_tokens: IntCounter,
@@ -51,6 +57,9 @@ pub struct KvbmMetrics {
 
     // object cache hit rate (0.0-1.0) from the sliding window
     pub object_cache_hit_rate: Gauge,
+
+    // remote filesystem cache hit rate (0.0-1.0) from the sliding window
+    pub remote_fs_cache_hit_rate: Gauge,
 
     // number of failed object storage read operations (blocks)
     pub object_read_failures: IntCounter,
@@ -115,6 +124,20 @@ impl KvbmMetrics {
                 &[],
             )
             .unwrap();
+        let offload_blocks_d2r = mr
+            .create_intcounter(
+                OFFLOAD_BLOCKS_D2R,
+                "The number of offload blocks from disk to remote filesystem (G3 -> G4)",
+                &[],
+            )
+            .unwrap();
+        let onboard_blocks_r2d = mr
+            .create_intcounter(
+                ONBOARD_BLOCKS_R2D,
+                "The number of onboard blocks from remote filesystem to device (G4 -> G1)",
+                &[],
+            )
+            .unwrap();
 
         let matched_tokens = mr
             .create_intcounter(MATCHED_TOKENS, "The number of matched tokens", &[])
@@ -140,6 +163,13 @@ impl KvbmMetrics {
                 &[],
             )
             .unwrap();
+        let remote_fs_cache_hit_rate = mr
+            .create_gauge(
+                REMOTE_FS_CACHE_HIT_RATE,
+                "Remote filesystem cache hit rate (0.0-1.0) from the sliding window",
+                &[],
+            )
+            .unwrap();
         let object_read_failures = mr
             .create_intcounter(
                 OBJECT_READ_FAILURES,
@@ -161,13 +191,16 @@ impl KvbmMetrics {
                 offload_blocks_h2d,
                 offload_blocks_d2d,
                 offload_blocks_d2o,
+                offload_blocks_d2r,
                 onboard_blocks_h2d,
                 onboard_blocks_d2d,
                 onboard_blocks_o2d,
+                onboard_blocks_r2d,
                 matched_tokens,
                 host_cache_hit_rate,
                 disk_cache_hit_rate,
                 object_cache_hit_rate,
+                remote_fs_cache_hit_rate,
                 object_read_failures,
                 object_write_failures,
                 shutdown_notify: None,
@@ -222,13 +255,16 @@ impl KvbmMetrics {
             offload_blocks_h2d,
             offload_blocks_d2d,
             offload_blocks_d2o,
+            offload_blocks_d2r,
             onboard_blocks_h2d,
             onboard_blocks_d2d,
             onboard_blocks_o2d,
+            onboard_blocks_r2d,
             matched_tokens,
             host_cache_hit_rate,
             disk_cache_hit_rate,
             object_cache_hit_rate,
+            remote_fs_cache_hit_rate,
             object_read_failures,
             object_write_failures,
             shutdown_notify: Some(notify),

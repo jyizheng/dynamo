@@ -39,7 +39,7 @@ use super::block::{
 };
 use super::pool::{BlockPool, BlockPoolError};
 use super::storage::{Cuda, Storage};
-use super::{DeviceStorage, DiskStorage, KvManagerModelConfig, PinnedStorage};
+use super::{DeviceStorage, DiskStorage, KvManagerModelConfig, PinnedStorage, RemoteFsStorage};
 use nixl_sys::Agent as NixlAgent;
 use std::sync::{
     Arc,
@@ -86,7 +86,8 @@ pub struct OffloadManagerConfig {
 
 /// The offload manager handles all block transfers between different cache levels.
 pub struct OffloadManager<Locality: LocalityProvider, Metadata: BlockMetadata> {
-    // Handles to the device, host, and disk pools.
+    // Handles to the device, host, disk, and remote_fs pools.
+    remote_fs: Option<Arc<dyn BlockPool<RemoteFsStorage, Locality, Metadata>>>,
     disk: Option<Arc<dyn BlockPool<DiskStorage, Locality, Metadata>>>,
     host: Option<Arc<dyn BlockPool<PinnedStorage, Locality, Metadata>>>,
     device: Option<Arc<dyn BlockPool<DeviceStorage, Locality, Metadata>>>,
@@ -99,11 +100,17 @@ pub struct OffloadManager<Locality: LocalityProvider, Metadata: BlockMetadata> {
     device_to_disk_offload_tx:
         mpsc::UnboundedSender<OffloadRequest<DeviceStorage, Locality, Metadata>>,
 
+    /// Queue of disk-to-remote_fs offloading requests (G3 -> G4)
+    disk_to_remote_fs_offload_tx:
+        mpsc::UnboundedSender<OffloadRequest<DiskStorage, Locality, Metadata>>,
+
     /// Queue of pending onboarding requests.
     host_onboard_tx:
         mpsc::UnboundedSender<OnboardRequest<PinnedStorage, DeviceStorage, Locality, Metadata>>,
     disk_onboard_tx:
         mpsc::UnboundedSender<OnboardRequest<DiskStorage, DeviceStorage, Locality, Metadata>>,
+    remote_fs_onboard_tx:
+        mpsc::UnboundedSender<OnboardRequest<RemoteFsStorage, DeviceStorage, Locality, Metadata>>,
 
     /// An incrementing counter for offloaded blocks. Within the same priority, blocks with lower tick values are processed first.
     tick: Arc<AtomicU64>,
@@ -117,6 +124,7 @@ impl<Locality: LocalityProvider + 'static, Metadata: BlockMetadata>
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        remote_fs: Option<Arc<dyn BlockPool<RemoteFsStorage, Locality, Metadata>>>,
         disk: Option<Arc<dyn BlockPool<DiskStorage, Locality, Metadata>>>,
         host: Option<Arc<dyn BlockPool<PinnedStorage, Locality, Metadata>>>,
         device: Option<Arc<dyn BlockPool<DeviceStorage, Locality, Metadata>>>,
@@ -126,19 +134,25 @@ impl<Locality: LocalityProvider + 'static, Metadata: BlockMetadata>
         let (device_offload_tx, device_offload_rx) = mpsc::unbounded_channel();
         let (host_offload_tx, host_offload_rx) = mpsc::unbounded_channel();
         let (device_to_disk_offload_tx, device_to_disk_offload_rx) = mpsc::unbounded_channel();
+        let (disk_to_remote_fs_offload_tx, disk_to_remote_fs_offload_rx) =
+            mpsc::unbounded_channel();
 
         let (host_onboard_tx, host_onboard_rx) = mpsc::unbounded_channel();
         let (disk_onboard_tx, disk_onboard_rx) = mpsc::unbounded_channel();
+        let (remote_fs_onboard_tx, remote_fs_onboard_rx) = mpsc::unbounded_channel();
 
         let this = Arc::new(Self {
+            remote_fs,
             disk,
             host,
             device,
             device_offload_tx,
             host_offload_tx,
             device_to_disk_offload_tx,
+            disk_to_remote_fs_offload_tx,
             host_onboard_tx,
             disk_onboard_tx,
+            remote_fs_onboard_tx,
             tick: Arc::new(AtomicU64::new(0)),
             bypass_cpu_mem: config.bypass_cpu_mem,
         });
@@ -332,6 +346,71 @@ impl<Locality: LocalityProvider + 'static, Metadata: BlockMetadata>
                 |_| device_to_disk_task,
                 config.cancellation_token.clone(),
                 "Device -> Disk direct offload worker (bypass CPU)",
+                &config.async_rt_handle,
+            )?
+            .detach();
+        }
+
+        // Disk -> RemoteFs offload (G3 -> G4)
+        if this.remote_fs.is_some() && this.disk.is_some() {
+            tracing::info!(
+                "G3->G4 offload enabled: Disk blocks will be offloaded to remote filesystem"
+            );
+
+            let disk_to_remote_fs_task = OffloadManager::offload_worker(
+                this.disk.clone(),
+                this.remote_fs.clone(),
+                disk_to_remote_fs_offload_rx,
+                Arc::new(TransferBatcher::new(
+                    LocalTransferManager::new(
+                        transfer_ctx.clone(),
+                        MAX_CONCURRENT_TRANSFERS,
+                        &config.async_rt_handle,
+                        config.cancellation_token.clone(),
+                    )?,
+                    MAX_TRANSFER_BATCH_SIZE,
+                    &config.async_rt_handle,
+                    config.cancellation_token.clone(),
+                )),
+                None, // no offload filter for disk->remote_fs
+                config
+                    .kvbm_metrics
+                    .as_ref()
+                    .map(|m| m.offload_blocks_d2r.clone()),
+                config.cancellation_token.clone(),
+            );
+            CriticalTaskExecutionHandle::new_with_runtime(
+                |_| disk_to_remote_fs_task,
+                config.cancellation_token.clone(),
+                "Disk -> RemoteFs offload worker (G3 -> G4)",
+                &config.async_rt_handle,
+            )?
+            .detach();
+        }
+
+        // RemoteFs -> Device onboarding (G4 -> G1)
+        if this.remote_fs.is_some() && this.device.is_some() {
+            let remote_fs_to_device_task = OffloadManager::onboard_worker(
+                this.remote_fs.clone(),
+                this.device.clone(),
+                remote_fs_onboard_rx,
+                Arc::new(TransferBatcher::new(
+                    LocalTransferManager::new(
+                        transfer_ctx.clone(),
+                        MAX_CONCURRENT_TRANSFERS,
+                        &config.async_rt_handle,
+                        config.cancellation_token.clone(),
+                    )?,
+                    MAX_TRANSFER_BATCH_SIZE,
+                    &config.async_rt_handle,
+                    config.cancellation_token.clone(),
+                )),
+                config.cancellation_token.clone(),
+            );
+            CriticalTaskExecutionHandle::new_with_runtime(
+                |_| remote_fs_to_device_task,
+                config.cancellation_token.clone(),
+                "RemoteFs -> Device onboarding worker (G4 -> G1)",
                 &config.async_rt_handle,
             )?
             .detach();
@@ -573,6 +652,21 @@ impl<Locality: LocalityProvider + 'static, Metadata: BlockMetadata>
             };
 
             self.host_offload_tx.send(request).unwrap();
+        } else if let Some(disk_block) =
+            any_block.downcast_ref::<ImmutableBlock<DiskStorage, Locality, Metadata>>()
+        {
+            // Disk (G3) -> RemoteFs (G4) offload
+            if self.disk_to_remote_fs_offload_tx.is_closed() {
+                return Ok(());
+            }
+
+            let request = OffloadRequest {
+                block: Arc::downgrade(disk_block.mutable_block()),
+                sequence_hash: disk_block.sequence_hash(),
+                key,
+            };
+
+            self.disk_to_remote_fs_offload_tx.send(request).unwrap();
         }
 
         Ok(())
@@ -654,6 +748,28 @@ impl<Locality: LocalityProvider + 'static, Metadata: BlockMetadata>
             if let Err(e) = self
                 .disk_onboard_tx
                 .send(OnboardRequest::new(disk_blocks, tx, targets))
+            {
+                e.0.response_tx
+                    .send(Err(BlockPoolError::ProgressEngineShutdown))
+                    .unwrap();
+            }
+        } else if any_block
+            .downcast_ref::<ImmutableBlock<RemoteFsStorage, Locality, Metadata>>()
+            .is_some()
+        {
+            let remote_fs_blocks = blocks
+                .iter()
+                .map(|b| {
+                    (b as &dyn Any)
+                        .downcast_ref::<ImmutableBlock<RemoteFsStorage, Locality, Metadata>>()
+                        .unwrap()
+                        .clone()
+                })
+                .collect();
+
+            if let Err(e) = self
+                .remote_fs_onboard_tx
+                .send(OnboardRequest::new(remote_fs_blocks, tx, targets))
             {
                 e.0.response_tx
                     .send(Err(BlockPoolError::ProgressEngineShutdown))

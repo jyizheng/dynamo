@@ -370,6 +370,15 @@ pub mod kvbm {
 
     /// Number of failed object storage write operations (blocks)
     pub const OBJECT_WRITE_FAILURES: &str = "object_write_failures";
+
+    /// Number of blocks offloaded from disk to remote filesystem (G3 -> G4)
+    pub const OFFLOAD_BLOCKS_D2R: &str = "offload_blocks_d2r";
+
+    /// Number of blocks onboarded from remote filesystem to device (G4 -> G1)
+    pub const ONBOARD_BLOCKS_R2D: &str = "onboard_blocks_r2d";
+
+    /// Remote filesystem cache hit rate (0.0-1.0) from the sliding window
+    pub const REMOTE_FS_CACHE_HIT_RATE: &str = "remote_fs_cache_hit_rate";
 }
 
 /// Routing overhead phase latency histogram names (raw Prometheus, not component-scoped).

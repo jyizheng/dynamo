@@ -20,7 +20,7 @@ use crate::block_manager::{
     },
     connector::scheduler::{SchedulingDecision, TransferSchedulerClient},
     offload::MAX_TRANSFER_BATCH_SIZE,
-    storage::{DeviceStorage, DiskStorage, Local, PinnedStorage},
+    storage::{DeviceStorage, DiskStorage, Local, PinnedStorage, RemoteFsStorage},
 };
 
 use anyhow::Result;
@@ -89,10 +89,10 @@ pub struct BlockTransferHandler {
     device: Option<LocalBlockDataList<DeviceStorage>>,
     host: Option<LocalBlockDataList<PinnedStorage>>,
     disk: Option<LocalBlockDataList<DiskStorage>>,
+    remote_fs: Option<LocalBlockDataList<RemoteFsStorage>>,
     context: Arc<TransferContext>,
     scheduler_client: Option<TransferSchedulerClient>,
     batcher: ConnectorTransferBatcher,
-    // add worker-connector scheduler client here
 }
 
 impl BlockTransferHandler {
@@ -100,14 +100,15 @@ impl BlockTransferHandler {
         device_blocks: Option<Vec<LocalBlock<DeviceStorage, BasicMetadata>>>,
         host_blocks: Option<Vec<LocalBlock<PinnedStorage, BasicMetadata>>>,
         disk_blocks: Option<Vec<LocalBlock<DiskStorage, BasicMetadata>>>,
+        remote_fs_blocks: Option<Vec<LocalBlock<RemoteFsStorage, BasicMetadata>>>,
         context: Arc<TransferContext>,
         scheduler_client: Option<TransferSchedulerClient>,
-        // add worker-connector scheduler client here
     ) -> Result<Self> {
         Ok(Self {
             device: Self::get_local_data(device_blocks),
             host: Self::get_local_data(host_blocks),
             disk: Self::get_local_data(disk_blocks),
+            remote_fs: Self::get_local_data(remote_fs_blocks),
             context,
             scheduler_client,
             batcher: ConnectorTransferBatcher::new(),
@@ -201,6 +202,15 @@ impl BlockTransferHandler {
             (Host, Device) => self.begin_transfer(&self.host, &self.device, request).await,
             (Host, Disk) => self.begin_transfer(&self.host, &self.disk, request).await,
             (Disk, Device) => self.begin_transfer(&self.disk, &self.device, request).await,
+            (Disk, RemoteFs) => self.begin_transfer(&self.disk, &self.remote_fs, request).await,
+            (RemoteFs, Device) => {
+                self.begin_transfer(&self.remote_fs, &self.device, request)
+                    .await
+            }
+            (RemoteFs, Disk) => {
+                self.begin_transfer(&self.remote_fs, &self.disk, request)
+                    .await
+            }
             _ => {
                 return Err(anyhow::anyhow!("Invalid transfer type."));
             }

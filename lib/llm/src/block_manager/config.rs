@@ -194,6 +194,13 @@ pub struct KvBlockManagerConfig {
     #[builder(default, setter(strip_option))]
     pub disk_layout: Option<KvManagerLayoutConfig<DiskStorage>>,
 
+    /// Specific configuration for the remote filesystem layout (G4 tier)
+    ///
+    /// This includes the number of blocks and the layout of the data into the remote filesystem storage.
+    /// Used for offloading from disk (G3) to a network-mounted filesystem (3FS FUSE, NFS, Lustre, etc.)
+    #[builder(default, setter(strip_option))]
+    pub remote_fs_layout: Option<KvManagerLayoutConfig<RemoteFsStorage>>,
+
     /// Event manager to handle block related events
     #[builder(default)]
     pub event_manager: Option<Arc<dyn EventManager>>,

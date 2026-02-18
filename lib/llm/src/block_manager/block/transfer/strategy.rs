@@ -118,6 +118,70 @@ impl WriteToStrategy<DeviceStorage> for DeviceStorage {
     }
 }
 
+// RemoteFsStorage (G4) - file-backed, same NIXL patterns as DiskStorage
+impl WriteToStrategy<RemoteFsStorage> for RemoteFsStorage {
+    #[inline(always)]
+    fn write_to_strategy() -> TransferStrategy {
+        TransferStrategy::Nixl(NixlTransfer::Write)
+    }
+}
+
+impl WriteToStrategy<SystemStorage> for RemoteFsStorage {
+    #[inline(always)]
+    fn write_to_strategy() -> TransferStrategy {
+        TransferStrategy::Nixl(NixlTransfer::Read)
+    }
+}
+
+impl WriteToStrategy<PinnedStorage> for RemoteFsStorage {
+    #[inline(always)]
+    fn write_to_strategy() -> TransferStrategy {
+        TransferStrategy::Nixl(NixlTransfer::Read)
+    }
+}
+
+impl WriteToStrategy<DeviceStorage> for RemoteFsStorage {
+    #[inline(always)]
+    fn write_to_strategy() -> TransferStrategy {
+        TransferStrategy::Nixl(NixlTransfer::Read)
+    }
+}
+
+impl WriteToStrategy<DiskStorage> for RemoteFsStorage {
+    #[inline(always)]
+    fn write_to_strategy() -> TransferStrategy {
+        TransferStrategy::Nixl(NixlTransfer::Write)
+    }
+}
+
+impl WriteToStrategy<RemoteFsStorage> for DiskStorage {
+    #[inline(always)]
+    fn write_to_strategy() -> TransferStrategy {
+        TransferStrategy::Nixl(NixlTransfer::Write)
+    }
+}
+
+impl WriteToStrategy<RemoteFsStorage> for SystemStorage {
+    #[inline(always)]
+    fn write_to_strategy() -> TransferStrategy {
+        TransferStrategy::Nixl(NixlTransfer::Write)
+    }
+}
+
+impl WriteToStrategy<RemoteFsStorage> for PinnedStorage {
+    #[inline(always)]
+    fn write_to_strategy() -> TransferStrategy {
+        TransferStrategy::Nixl(NixlTransfer::Write)
+    }
+}
+
+impl WriteToStrategy<RemoteFsStorage> for DeviceStorage {
+    #[inline(always)]
+    fn write_to_strategy() -> TransferStrategy {
+        TransferStrategy::Nixl(NixlTransfer::Write)
+    }
+}
+
 impl<S: Storage + Local> WriteToStrategy<NixlStorage> for S {
     #[inline(always)]
     fn write_to_strategy() -> TransferStrategy {

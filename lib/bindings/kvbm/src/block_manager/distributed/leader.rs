@@ -12,6 +12,7 @@ use utils::{get_leader_zmq_ack_url, get_leader_zmq_pub_url};
 use dynamo_runtime::config::environment_names::kvbm::cpu_cache as env_cpu_cache;
 use dynamo_runtime::config::environment_names::kvbm::disk_cache as env_disk_cache;
 use dynamo_runtime::config::environment_names::kvbm::leader as env_kvbm_leader;
+use dynamo_runtime::config::environment_names::kvbm::remote_fs_cache as env_remote_fs_cache;
 
 const DEFAULT_INIT_TIMEOUT_SECS: u64 = 1800;
 
@@ -90,6 +91,10 @@ impl KvbmLeader {
             .disk_blocks_config(get_blocks_config(
                 env_disk_cache::DYN_KVBM_DISK_CACHE_GB,
                 env_disk_cache::DYN_KVBM_DISK_CACHE_OVERRIDE_NUM_BLOCKS,
+            ))
+            .remote_fs_blocks_config(get_blocks_config(
+                env_remote_fs_cache::DYN_KVBM_REMOTE_FS_CACHE_GB,
+                env_remote_fs_cache::DYN_KVBM_REMOTE_FS_CACHE_OVERRIDE_NUM_BLOCKS,
             ))
             .leader_pub_url(get_leader_zmq_pub_url())
             .leader_ack_url(get_leader_zmq_ack_url())

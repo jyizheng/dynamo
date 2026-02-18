@@ -70,11 +70,13 @@ pub mod cuda;
 pub mod disk;
 pub mod nixl;
 pub mod object;
+pub mod remote_fs;
 pub mod torch;
 
 pub use cuda::*;
 pub use disk::*;
 pub use object::ObjectStorage;
+pub use remote_fs::*;
 use torch::*;
 
 use std::{
@@ -104,6 +106,9 @@ pub enum StorageType {
 
     /// Disk memory
     Disk(u64),
+
+    /// Remote filesystem memory (3FS FUSE, NFS, Lustre, etc.)
+    RemoteFs(u64),
 
     /// Remote memory accessible through NIXL
     Nixl,

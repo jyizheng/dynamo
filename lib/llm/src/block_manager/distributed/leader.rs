@@ -51,6 +51,9 @@ pub struct KvbmLeaderConfig {
     #[builder(default = "KvbmLeaderNumBlocksConfig::default()")]
     disk_blocks_config: KvbmLeaderNumBlocksConfig,
 
+    #[builder(default = "KvbmLeaderNumBlocksConfig::default()")]
+    remote_fs_blocks_config: KvbmLeaderNumBlocksConfig,
+
     #[builder(default = "String::from(\"tcp://127.0.0.1:56001\")")]
     leader_pub_url: String,
 
@@ -98,6 +101,7 @@ pub struct KvbmLeaderState {
     pub num_device_blocks: Arc<AtomicUsize>,
     pub num_host_blocks: Arc<AtomicUsize>,
     pub num_disk_blocks: Arc<AtomicUsize>,
+    pub num_remote_fs_blocks: Arc<AtomicUsize>,
     pub workers_allocation_ready: Arc<AtomicBool>,
     pub workers_ready_notify: Arc<Notify>,
 }
@@ -141,11 +145,13 @@ impl KvbmLeader {
         let timeout = self.config.leader_init_timeout_secs;
         let host_cfg = self.config.host_blocks_config.clone();
         let disk_cfg = self.config.disk_blocks_config.clone();
+        let remote_fs_cfg = self.config.remote_fs_blocks_config.clone();
 
         // capture num_device_blocks so we can set it inside the closure
         let num_device_blocks_cell = state.num_device_blocks.clone();
         let num_host_blocks_cell = state.num_host_blocks.clone();
         let num_disk_blocks_cell = state.num_disk_blocks.clone();
+        let num_remote_fs_blocks_cell = state.num_remote_fs_blocks.clone();
 
         tokio::spawn(async move {
             let res = ZmqActiveMessageLeader::new_with_handshake(
@@ -163,14 +169,17 @@ impl KvbmLeader {
                     let bytes_per_block: usize = workers.iter().map(|w| w.bytes_per_block).sum();
                     let num_host_blocks = compute_num_blocks(&host_cfg, bytes_per_block);
                     let num_disk_blocks = compute_num_blocks(&disk_cfg, bytes_per_block);
+                    let num_remote_fs_blocks = compute_num_blocks(&remote_fs_cfg, bytes_per_block);
 
                     // store into leader state
                     num_host_blocks_cell.store(num_host_blocks, Ordering::Release);
                     num_disk_blocks_cell.store(num_disk_blocks, Ordering::Release);
+                    num_remote_fs_blocks_cell.store(num_remote_fs_blocks, Ordering::Release);
 
                     LeaderMetadata {
                         num_host_blocks,
                         num_disk_blocks,
+                        num_remote_fs_blocks,
                     }
                 },
             )
@@ -214,6 +223,10 @@ impl KvbmLeader {
 
     pub fn num_disk_blocks(&self) -> usize {
         self.state.num_disk_blocks.load(Ordering::Acquire)
+    }
+
+    pub fn num_remote_fs_blocks(&self) -> usize {
+        self.state.num_remote_fs_blocks.load(Ordering::Acquire)
     }
 
     pub async fn wait_worker_sync_ready(&self) -> bool {
